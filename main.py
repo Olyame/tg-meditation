@@ -37,6 +37,7 @@ Time for your daily meditation.
 Quiet the mind, and the soul will speak.
 
 Enjoy your meditation! 🙏
+I'm with u. O. <3
 """
 
 
