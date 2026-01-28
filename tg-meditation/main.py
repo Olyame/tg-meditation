@@ -5,7 +5,8 @@ Sends a reminder every morning at 9:20 AM CET.
 
 import logging
 import os
-from datetime import datetime
+import random
+from datetime import datetime, time, timedelta
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -44,8 +45,31 @@ Enjoy your meditation! 🙏
 I'm with you. O. <3
 """
 
+# Motivational quotes
+QUOTES = [
+    "The thing to do when you're impatient is to enjoy the wait. - Unknown",
+    "Quiet the mind, and the soul will speak. - Ma Jaya Sati Bhagavati",
+    "Meditation is not about stopping thoughts, but recognizing that we are more than our thoughts. - Unknown",
+    "The present moment is filled with joy and happiness. If you are attentive, you will see it. - Thich Nhat Hanh",
+    "Breath is the bridge which connects life to consciousness. - Thich Nhat Hanh",
+]
+
 # Define Berlin timezone
 BERLIN_TZ = timezone('Europe/Berlin')
+
+
+def get_next_reminder_time():
+    """Get the time of the next meditation reminder."""
+    now = datetime.now(BERLIN_TZ)
+    reminder_time = time(9, 20)  # 9:20 AM
+    
+    # Calculate next reminder
+    next_reminder = now.replace(hour=reminder_time.hour, minute=reminder_time.minute, second=0, microsecond=0)
+    
+    if now > next_reminder:
+        next_reminder += timedelta(days=1)
+    
+    return next_reminder.strftime("%H:%M %Z")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -58,6 +82,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Your daily meditation reminder is set for 9:20 AM CET.\n\n"
         "📝 Commands:\n"
         "• /meditate - Get the meditation message now\n"
+        "• /quote - Get a motivational quote\n"
+        "• /status - Check your subscription status\n"
         "• /stop - Unsubscribe from reminders"
     )
     
@@ -72,7 +98,8 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Remove any scheduled jobs for this chat
     job_name = f"meditation_{chat_id}"
-    context.job_queue.get_jobs_by_name(job_name)
+    for job in context.job_queue.get_jobs_by_name(job_name):
+        job.remove()
     
     await update.message.reply_text(
         "You've been unsubscribed from daily meditation reminders.\n"
@@ -92,6 +119,41 @@ async def meditate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Sent meditation message to user {chat_id}")
 
 
+async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /quote command - send a motivational quote."""
+    chat_id = update.effective_chat.id
+    logger.info(f"User {chat_id} requested a quote")
+    
+    import random
+    quote = random.choice(QUOTES)
+    
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"💭 {quote}"
+    )
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /status command - show subscription status."""
+    chat_id = update.effective_chat.id
+    job_name = f"meditation_{chat_id}"
+    
+    jobs = list(context.job_queue.get_jobs_by_name(job_name))
+    
+    if jobs:
+        next_time = get_next_reminder_time()
+        await update.message.reply_text(
+            "✅ You're subscribed to daily meditation reminders!\n\n"
+            f"⏰ Next reminder: {next_time}\n"
+            "Type /stop to unsubscribe."
+        )
+    else:
+        await update.message.reply_text(
+            "❌ You're not subscribed to reminders.\n\n"
+            "Type /start to subscribe."
+        )
+
+
 def schedule_daily_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     """Schedule the daily meditation reminder for a specific chat."""
     job_name = f"meditation_{chat_id}"
@@ -103,7 +165,7 @@ def schedule_daily_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     # Schedule new daily job at 9:20 AM Berlin time
     context.job_queue.run_daily(
         send_meditation_reminder,
-        time=datetime.strptime("09:20", "%H:%M").time(),
+        time=time(9, 20),  # 9:20 AM
         days=tuple(range(7)),  # Every day
         name=job_name,
         chat_id=chat_id,
@@ -144,6 +206,8 @@ async def main():
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('stop', stop))
     application.add_handler(CommandHandler('meditate', meditate))
+    application.add_handler(CommandHandler('quote', quote))
+    application.add_handler(CommandHandler('status', status))
     
     # Add error handler
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -157,5 +221,7 @@ async def main():
 
 
 if __name__ == '__main__':
+    from dotenv import load_dotenv
+    load_dotenv()
     import asyncio
     asyncio.run(main())
