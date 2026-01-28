@@ -1,159 +1,122 @@
 """
-Telegram Bot for Daily Meditation Reminders
-Sends a reminder every morning at 9:20 AM CET.
+Simple Telegram Bot for Daily Meditation Reminders
+Sends reminder every morning at 10:40 AM CET.
 """
 
-import logging
+import json
 import os
-from datetime import datetime
+from datetime import time
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
-    PicklePersistence,
 )
 
 from pytz import timezone
+from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Load environment variables
+load_dotenv()
 
-# Get configuration
+# Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+USERS_FILE = 'users.json'
+BERLIN_TZ = timezone('Europe/Berlin')
 
-# Define meditation message
-MEDITATION_MESSAGE = """
+# Message
+MESSAGE = """
 🌅 Guten Morgen! 🌅
 
-It's time for your daily meditation session.
+Time for your daily meditation.
 
 🧘 Find a comfortable position
 🌬️ Take deep breaths
 💭 Clear your mind
-⏱️ Spend 10-15 minutes in peace
 
 Quiet the mind, and the soul will speak.
 
 Enjoy your meditation! 🙏
-
-I'm with you. O. <3
 """
 
-# Define Berlin timezone
-BERLIN_TZ = timezone('Europe/Berlin')
+
+def load_users():
+    """Load subscribed users from file."""
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+
+def save_users(users):
+    """Save subscribed users to file."""
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command - subscribe user to daily reminders."""
+    """Subscribe user to daily reminders."""
     chat_id = update.effective_chat.id
-    logger.info(f"User {chat_id} started the bot")
     
-    await update.message.reply_text(
-        "🧘 Welcome to Meditation Reminder Bot! 🧘\n\n"
-        "Your daily meditation reminder is set for 9:20 AM CET.\n\n"
-        "📝 Commands:\n"
-        "• /meditate - Get the meditation message now\n"
-        "• /stop - Unsubscribe from reminders"
-    )
-    
-    # Schedule daily reminder for this chat
-    schedule_daily_reminder(context, chat_id)
+    users = load_users()
+    if chat_id not in users:
+        users.append(chat_id)
+        save_users(users)
+        await update.message.reply_text("✅ Subscribed to daily meditation reminders!")
+    else:
+        await update.message.reply_text("You're already subscribed!")
 
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /stop command - unsubscribe user from daily reminders."""
+    """Unsubscribe user from daily reminders."""
     chat_id = update.effective_chat.id
-    logger.info(f"User {chat_id} stopped the bot")
     
-    # Remove any scheduled jobs for this chat
-    job_name = f"meditation_{chat_id}"
-    context.job_queue.get_jobs_by_name(job_name)
-    
-    await update.message.reply_text(
-        "You've been unsubscribed from daily meditation reminders.\n"
-        "Use /start to subscribe again."
-    )
+    users = load_users()
+    if chat_id in users:
+        users.remove(chat_id)
+        save_users(users)
+        await update.message.reply_text("❌ Unsubscribed from daily reminders.")
+    else:
+        await update.message.reply_text("You're not subscribed.")
 
 
-async def meditate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /meditate command - send meditation message immediately."""
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send test reminder immediately."""
     chat_id = update.effective_chat.id
-    logger.info(f"User {chat_id} requested meditation message")
-    
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=MEDITATION_MESSAGE
-    )
-    logger.info(f"Sent meditation message to user {chat_id}")
+    await context.bot.send_message(chat_id=chat_id, text=MESSAGE)
 
 
-def schedule_daily_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """Schedule the daily meditation reminder for a specific chat."""
-    job_name = f"meditation_{chat_id}"
-    
-    # Remove existing job if any
-    for job in context.job_queue.get_jobs_by_name(job_name):
-        job.remove()
-    
-    # Schedule new daily job at 9:20 AM Berlin time
-    context.job_queue.run_daily(
-        send_meditation_reminder,
-        time=datetime.strptime("09:20", "%H:%M").time(),
-        days=tuple(range(7)),  # Every day
-        name=job_name,
-        chat_id=chat_id,
-        timezone=BERLIN_TZ
-    )
-    logger.info(f"Scheduled daily reminder for user {chat_id} at 9:20 AM CET")
-
-
-async def send_meditation_reminder(context: ContextTypes.DEFAULT_TYPE):
-    """Send meditation reminder to the scheduled chat."""
-    job = context.job
-    chat_id = job.chat_id
-    logger.info(f"Triggering daily meditation reminder for chat {chat_id}")
-    
-    try:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=MEDITATION_MESSAGE
-        )
-        logger.info(f"Successfully sent meditation reminder to user {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send meditation reminder to user {chat_id}: {e}")
+async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Send reminder to all subscribed users."""
+    users = load_users()
+    for chat_id in users:
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=MESSAGE)
+        except Exception as e:
+            print(f"Error sending to {chat_id}: {e}")
 
 
 async def main():
-    """Main function to run the bot."""
+    """Run the bot."""
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not found in environment variables!")
+        print("Error: TELEGRAM_BOT_TOKEN not found!")
         return
     
-    # Use PicklePersistence to save job schedule across restarts
-    persistence = PicklePersistence(filepath='bot_data.pkl')
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Create Application with persistence
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).persistence(persistence).build()
+    # Commands
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('stop', stop))
+    app.add_handler(CommandHandler('test', test))
     
-    # Add command handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('stop', stop))
-    application.add_handler(CommandHandler('meditate', meditate))
+    # Daily reminder at 10:40 AM Berlin time
+    app.job_queue.run_daily(
+        send_reminder,
+        time=time(10, 40, tzinfo=BERLIN_TZ)
+    )
     
-    # Add error handler
-    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logger.error(f"Exception while handling an update: {context.error}")
-    
-    application.add_error_handler(error_handler)
-    
-    # Run the bot
-    logger.info("Starting Telegram bot...")
-    await application.run_polling()
+    print("Bot started! Press Ctrl+C to stop.")
+    await app.run_polling()
 
 
 if __name__ == '__main__':
