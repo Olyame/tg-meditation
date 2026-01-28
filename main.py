@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, AIORateLimiter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from pytz import timezone
 from dotenv import load_dotenv
 import os
 
@@ -57,11 +58,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subscribed_users.add(chat_id)
     await update.message.reply_text(
         "🧘 Welcome to Meditation Reminder Bot! 🧘\n\n"
-        "You'll receive a daily meditation reminder.\n\n"
+        "Your daily meditation reminder is set for 8:55 AM CET.\n\n"
         "📝 Commands:\n"
         "• /remind HH:MM - Set custom reminder time\n"
         "• /myremind - Check your reminder time\n"
-        "• /defaultremind - Reset to default (8:40 AM)\n"
+        "• /defaultremind - Reset to default (8:55 AM)\n"
         "• /stop - Unsubscribe from reminders\n\n"
         "Example: /remind 09:30"
     )
@@ -87,13 +88,13 @@ async def send_meditation_reminder(application):
     current_minute = now.minute
     
     for chat_id in subscribed_users:
-        # Get user's custom time or use default (8:40)
+        # Get user's custom time or use default (8:55 CET)
         if chat_id in user_reminder_times:
             target_hour = user_reminder_times[chat_id]["hour"]
             target_minute = user_reminder_times[chat_id]["minute"]
         else:
             target_hour = 8
-            target_minute = 40
+            target_minute = 55
         
         # Send reminder if current time matches user's target time
         if current_hour == target_hour and current_minute == target_minute:
@@ -159,7 +160,7 @@ async def set_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ Your meditation reminder is set for {hour:02d}:{minute:02d} daily!\n\n"
             "Use /myremind to check your time.\n"
-            "Use /defaultremind to reset to default (8:40 AM)."
+            "Use /defaultremind to reset to default (8:55 AM)."
         )
         logger.info(f"User {chat_id} set reminder time to {hour:02d}:{minute:02d}")
         
@@ -183,7 +184,7 @@ async def my_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "🕐 Your reminder is set to the default time: 8:40 AM\n\n"
+            "🕐 Your reminder is set to the default time: 8:55 AM\n\n"
             "Use /remind HH:MM to set a custom time."
         )
 
@@ -196,7 +197,7 @@ async def default_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del user_reminder_times[chat_id]
     
     await update.message.reply_text(
-        "✅ Your reminder has been reset to the default time: 8:40 AM\n\n"
+        "✅ Your reminder has been reset to the default time: 8:55 AM\n\n"
         "Use /remind HH:MM to set a custom time."
     )
     logger.info(f"User {chat_id} reset to default reminder time")
@@ -219,14 +220,15 @@ async def main():
     application.add_handler(CommandHandler('myremind', my_reminder))
     application.add_handler(CommandHandler('defaultremind', default_reminder))
 
-    # Create scheduler
-    scheduler = AsyncIOScheduler()
+    # Create scheduler with Europe/Berlin timezone (CET/CEST)
+    berlin_tz = timezone('Europe/Berlin')
+    scheduler = AsyncIOScheduler(timezone=berlin_tz)
 
     # Schedule meditation reminder check every minute
-    # Each user gets reminded at their custom time (or default 8:40)
+    # Each user gets reminded at their custom time (or default 8:55 AM CET)
     scheduler.add_job(
         send_meditation_reminder,
-        CronTrigger(minute='*'),  # Run every minute
+        CronTrigger(minute='*', timezone=berlin_tz),  # Run every minute in Berlin time
         args=[application],
         id='meditation_reminder',
         name='Check and send meditation reminders'
@@ -234,7 +236,7 @@ async def main():
 
     # Start the scheduler
     scheduler.start()
-    logger.info("Scheduler started - meditation reminders will be sent at each user's custom time (default 8:40 AM)")
+    logger.info("Scheduler started - meditation reminders will be sent at each user's custom time (default 8:55 AM CET)")
 
     # Run the bot
     logger.info("Starting Telegram bot...")
